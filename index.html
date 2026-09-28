@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Topologies - Calculateur & Audit de Charge Cognitive</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel CDN pour JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        topologies: {
+                            stream: '#F59E0B',
+                            platform: '#3B82F6',
+                            enabling: '#8B5CF6',
+                            subsystem: '#EF4444',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        code, pre { font-family: 'JetBrains Mono', monospace; }
+        .gauge-transition { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        .card-shadow {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+        }
+        .dark .card-shadow {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        function App() {
+            // Theme State (Dark / Light)
+            const [isDarkMode, setIsDarkMode] = useState(true);
+
+            // Synchronisation du thème avec le tag <html>
+            useEffect(() => {
+                const root = document.documentElement;
+                if (isDarkMode) {
+                    root.classList.add('dark');
+                } else {
+                    root.classList.remove('dark');
+                }
+            }, [isDarkMode]);
+
+            // Navigation par onglets ('calculator' | 'rules')
+            const [activeTab, setActiveTab] = useState('calculator');
+
+            // Paramètres Équipe (Dunbar & Maturité)
+            const [teamName, setTeamName] = useState('Équipe Stream-Aligned Alpha');
+            const [teamSize, setTeamSize] = useState(7);
+            const [teamSeniority, setTeamSeniority] = useState('mixed'); // 'junior', 'mixed', 'senior'
+            const [turnoverRate, setTurnoverRate] = useState('low'); // 'low', 'medium', 'high'
+
+            // Facteurs de Charge Extrinsèque (Ops, CI/CD, Dépendances, Debt)
+            const [hasPlatform, setHasPlatform] = useState(true);
+            const [cicdAutonomy, setCicdAutonomy] = useState('high'); // 'low', 'medium', 'high'
+            const [dependenciesCount, setDependenciesCount] = useState(2);
+            const [techHeterogeneity, setTechHeterogeneity] = useState('moderate'); // 'low', 'moderate', 'high'
+            const [techDebtLevel, setTechDebtLevel] = useState('moderate'); // 'low', 'moderate', 'high'
+
+            // Domaines Métiers Assignés (Charge Essentielle & Intrinsèque)
+            const [domains, setDomains] = useState([
+                { id: 1, name: 'Gestion des Usagers', complexity: 'Simple', notes: 'Formulaires CRUD standard' },
+                { id: 2, name: 'Calcul des Éligibilités', complexity: 'Compliqué', notes: 'Règles métier d’attribution' }
+            ]);
+
+            // Formulaire pour nouveau domaine
+            const [newDomainName, setNewDomainName] = useState('');
+            const [newDomainComplexity, setNewDomainComplexity] = useState('Simple');
+            const [newDomainNotes, setNewDomainNotes] = useState('');
+
+            // UI Notification state
+            const [toastMessage, setToastMessage] = useState(null);
+            const [showMarkdownModal, setShowMarkdownModal] = useState(false);
+
+            const triggerToast = (msg) => {
+                setToastMessage(msg);
+                setTimeout(() => setToastMessage(null), 3500);
+            };
+
+            const addDomain = () => {
+                if (!newDomainName.trim()) {
+                    triggerToast('⚠️ Veuillez saisir un nom de domaine.');
+                    return;
+                }
+                setDomains([
+                    ...domains, 
+                    { id: Date.now(), name: newDomainName.trim(), complexity: newDomainComplexity, notes: newDomainNotes.trim() }
+                ]);
+                setNewDomainName('');
+                setNewDomainNotes('');
+                triggerToast('✅ Domaine métier ajouté au portefeuille.');
+            };
+
+            const removeDomain = (id) => {
+                setDomains(domains.filter(d => d.id !== id));
+                triggerToast('🗑️ Domaine supprimé.');
+            };
+
+            const metrics = useMemo(() => {
+                // 1. Calcul Charge Extrinsèque (Bruit, Outillage, Infra) [Max ~35 pts]
+                let extrinsic = 10; // Base minimale incompressible
+                
+                if (!hasPlatform) extrinsic += 12; // Absence de Platform Team = lourde charge d'infra
+                
+                if (cicdAutonomy === 'low') extrinsic += 10;
+                else if (cicdAutonomy === 'medium') extrinsic += 5;
+
+                extrinsic += Math.min(dependenciesCount * 3, 12); // Coût des dépendances inter-équipes
+
+                if (techHeterogeneity === 'high') extrinsic += 6;
+                else if (techHeterogeneity === 'moderate') extrinsic += 3;
+
+                if (techDebtLevel === 'high') extrinsic += 8;
+                else if (techDebtLevel === 'moderate') extrinsic += 4;
+
+                // 2. Calcul Charge Intrinsèque (Taille stack, turnover, séniorité) [Max ~30 pts]
+                let intrinsic = 10;
+
+                if (teamSeniority === 'junior') intrinsic += 10;
+                else if (teamSeniority === 'mixed') intrinsic += 5;
+
+                if (turnoverRate === 'high') intrinsic += 8;
+                else if (turnoverRate === 'medium') intrinsic += 4;
+
+                // Modificateur selon taille d'équipe (Dunbar)
+                if (teamSize > 15) intrinsic += 15;
+                else if (teamSize > 9) intrinsic += 8;
+                else if (teamSize < 4) intrinsic += 6; // Équipe sous-dimensionnée = surcapacité individuelle
+
+                // 3. Calcul Charge Essentielle (Germane) liée au Métier [Max ~45 pts]
+                let germane = 0;
+                const simpleCount = domains.filter(d => d.complexity === 'Simple').length;
+                const complicatedCount = domains.filter(d => d.complexity === 'Compliqué').length;
+                const complexCount = domains.filter(d => d.complexity === 'Complex').length;
+
+                germane += simpleCount * 6;
+                germane += complicatedCount * 18;
+                germane += complexCount * 32;
+
+                // Total Brut & Plafond à 100 points
+                const rawTotal = extrinsic + intrinsic + germane;
+                const totalLoad = Math.min(Math.round(rawTotal), 100);
+                const remainingCapacity = Math.max(0, 100 - totalLoad);
+
+                const violations = [];
+                const warnings = [];
+                const recommendations = [];
+
+                // Heuristique 1 : Équipe / Dunbar
+                if (teamSize > 15) {
+                    violations.push('🚨 Dépassement Dunbar (>15 pers) : Perte de confiance, canaux de communication saturés (N*(N-1)/2).');
+                    recommendations.push('✂️ Scinder l’équipe en 2 Stream-Aligned teams distinctes avec des Bounded Contexts clairs.');
+                } else if (teamSize > 9) {
+                    warnings.push('⚠️ Taille d’équipe élevée (10-15 pers) : Risque de ralentissement des prises de décision.');
+                } else if (teamSize < 4) {
+                    warnings.push('⚠️ Équipe trop restreinte (<4 pers) : Vulnérabilité au bus-factor et surcharge individuelle.');
+                }
+
+                // Heuristique 2 : Domaine Complexe
+                if (complexCount >= 1) {
+                    if (simpleCount > 0 || complicatedCount > 0 || complexCount > 1) {
+                        violations.push('🚨 Violation règle Complexe : Une équipe gérant un domaine COMPLEXE ne doit gérer AUCUN autre domaine !');
+                        recommendations.push('🎯 Isoler le domaine complexe au sein d’une équipe dédiée à 100% ou réattribuer les autres domaines.');
+                    }
+                }
+
+                // Heuristique 3 : Domaines Compliqués
+                if (complicatedCount > 1) {
+                    violations.push('🚨 Cumul Compliqué : Une équipe ne peut pas gérer deux domaines COMPLIQUÉS simultanément.');
+                    recommendations.push('🧱 Extraire l’un des domaines compliqués vers une Complicated Subsystem Team ou une autre Stream Team.');
+                }
+
+                // Heuristique 4 : Dispersion par Domaines Simples
+                if (simpleCount > 3) {
+                    warnings.push('⚠️ Dispersion de Contexte : Plus de 3 domaines "Simples" entraînent une fragmentation de l’attention.');
+                    recommendations.push('📦 Regrouper les domaines simples en un seul Bounded Context consolidé.');
+                }
+
+                // Heuristique 5 : Charge Extrinsèque Surchargée (Pas de Platform)
+                if (extrinsic >= 25) {
+                    violations.push('🚨 Friction Opérationnelle : La charge extrinsèque est trop élevée et cannibalise la valeur métier.');
+                    if (!hasPlatform) {
+                        recommendations.push('🚀 Mettre en place ou solliciter une Platform Team pour fournir un PaaS / CI-CD en libre-service (XaaS).');
+                    }
+                    if (dependenciesCount >= 3) {
+                        recommendations.push('🔗 Réduire les dépendances synchrones entre équipes via des architectures Event-Driven ou interfaces asynchrones.');
+                    }
+                }
+
+                // Status Global & Thématisation
+                let status = 'SAIN';
+                let statusBadge = 'text-emerald-700 bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/80 dark:border-emerald-500/40';
+                let gaugeColor = 'bg-emerald-500';
+
+                if (totalLoad >= 85 || violations.length > 0) {
+                    status = 'SURCHARGE CRITIQUE';
+                    statusBadge = 'text-rose-700 bg-rose-100 border-rose-300 dark:text-rose-300 dark:bg-rose-950/80 dark:border-rose-500/40';
+                    gaugeColor = 'bg-rose-500';
+                } else if (totalLoad >= 65 || warnings.length > 0) {
+                    status = 'TENSION MODÉRÉE';
+                    statusBadge = 'text-amber-700 bg-amber-100 border-amber-300 dark:text-amber-300 dark:bg-amber-950/80 dark:border-amber-500/40';
+                    gaugeColor = 'bg-amber-500';
+                }
+
+                return {
+                    extrinsic,
+                    intrinsic,
+                    germane,
+                    totalLoad,
+                    remainingCapacity,
+                    simpleCount,
+                    complicatedCount,
+                    complexCount,
+                    violations,
+                    warnings,
+                    recommendations,
+                    status,
+                    statusBadge,
+                    gaugeColor
+                };
+            }, [teamSize, teamSeniority, turnoverRate, hasPlatform, cicdAutonomy, dependenciesCount, techHeterogeneity, techDebtLevel, domains]);
+
+            const generatedMarkdown = useMemo(() => {
+                return `# Audit de Charge Cognitive Team Topologies
+**Équipe :** ${teamName}
+**Date :** ${new Date().toLocaleDateString('fr-FR')}
+**Diagnostic Global :** ${metrics.status} (${metrics.totalLoad}% de charge estimée)
+
+---
+
+## 1. Métriques de la Charge Cognitive (John Sweller)
+- **Charge Extrinsèque (Bruit Ops & Outillage) :** ${metrics.extrinsic} pts
+- **Charge Intrinsèque (Stack & Turnover) :** ${metrics.intrinsic} pts
+- **Charge Essentielle / Germane (Périmètre Métier) :** ${metrics.germane} pts
+- **Capacité Cognitive Restante / Buffer :** ${metrics.remainingCapacity}%
+
+---
+
+## 2. Profil d'Équipe & Facteurs d'Environnement
+- **Taille de l'Équipe :** ${teamSize} personnes (Maturité : ${teamSeniority}, Turnover : ${turnoverRate})
+- **Support Platform Team (XaaS) :** ${hasPlatform ? 'Oui ✅' : 'Non ❌'}
+- **Autonomie CI/CD :** ${cicdAutonomy}
+- **Nombre de Dépendances Inter-Équipes :** ${dependenciesCount}
+- **Niveau de Dette Technique :** ${techDebtLevel}
+
+---
+
+## 3. Portefeuille de Domaines Métiers Assignés (${domains.length})
+${domains.map(d => `- **${d.name}** [${d.complexity}] ${d.notes ? `_(${d.notes})_` : ''}`).join('\n')}
+
+---
+
+## 4. Alertes & Violations des Heuristiques
+${metrics.violations.length === 0 && metrics.warnings.length === 0 ? '✅ Aucune violation détectée.' : ''}
+${metrics.violations.map(v => `- ${v}`).join('\n')}
+${metrics.warnings.map(w => `- ${w}`).join('\n')}
+
+---
+
+## 5. Préconisations & Plan d'Action Architecturale
+${metrics.recommendations.length === 0 ? '• Conserver l’organisation actuelle et maintenir le niveau de libre-service de la plateforme.' : metrics.recommendations.map(r => `- ${r}`).join('\n')}
+`;
+            }, [teamName, teamSize, teamSeniority, turnoverRate, hasPlatform, cicdAutonomy, dependenciesCount, techDebtLevel, domains, metrics]);
+
+            const copyMarkdownToClipboard = () => {
+                // Utilisation de textarea temporaire pour éviter les blocages iFrame / nav.clipboard
+                const el = document.createElement('textarea');
+                el.value = generatedMarkdown;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                triggerToast('📋 Audit Markdown copié dans le presse-papier !');
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col justify-between transition-colors duration-300">
+                    {/* TOAST NOTIFICATION */}
+                    {toastMessage && (
+                        <div className="fixed bottom-6 right-6 z-50 bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 border border-slate-700 dark:border-slate-300 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 animate-bounce font-medium text-xs">
+                            <span>{toastMessage}</span>
+                        </div>
+                    )}
+
+                    {}
+                    <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 transition-colors duration-300">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-gradient-to-br from-indigo-500 via-purple-600 to-indigo-700 rounded-xl shadow-md text-white">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h1 className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">Team Topologies Workbench</h1>
+                                        <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
+                                            Modèle Sweller
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">Calculateur & Audit de Charge Cognitive pour Architectes SI & Solutions</p>
+                                </div>
+                            </div>
+
+                            {/* BARRE DE NAVIGATION ET SWITCH THEME */}
+                            <div className="flex items-center gap-3">
+                                <nav className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                                    <button 
+                                        onClick={() => setActiveTab('calculator')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'calculator' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
+                                    >
+                                        🧮 Calculateur & Audit
+                                    </button>
+                                    <button 
+                                        onClick={() => setActiveTab('rules')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'rules' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
+                                    >
+                                        📚 Règles & Validité Scientifique
+                                    </button>
+                                </nav>
+
+                                {/* BOUTON THEME SWITCHER */}
+                                <button 
+                                    onClick={() => setIsDarkMode(!isDarkMode)}
+                                    title="Changer le thème (Clair / Sombre)"
+                                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5 text-xs font-semibold shadow-sm"
+                                >
+                                    {isDarkMode ? (
+                                        <>
+                                            <span className="text-amber-400">☀️</span>
+                                            <span className="hidden sm:inline">Clair</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-indigo-400">🌙</span>
+                                            <span className="hidden sm:inline">Sombre</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* MAIN CONTENT */}
+                    <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
+                        
+                        {activeTab === 'calculator' && (
+                            <>
+                                {/* BANDEAU DE SYNTHÈSE GLOBAL */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-6 transition-colors duration-300">
+                                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
+                                        <div className="flex items-center gap-4">
+                                            <div>
+                                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Équipe sous évaluation</span>
+                                                <input 
+                                                    type="text" 
+                                                    value={teamName}
+                                                    onChange={(e) => setTeamName(e.target.value)}
+                                                    className="block mt-1 bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-sm font-extrabold text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                                                />
+                                            </div>
+                                            <div className="border-l border-slate-200 dark:border-slate-800 pl-4">
+                                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Diagnostic Global</span>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">{metrics.totalLoad}%</h2>
+                                                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${metrics.statusBadge}`}>
+                                                        {metrics.status}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                                                <div className="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <span className="text-[10px] font-bold uppercase text-rose-600 dark:text-rose-400 block">Extrinsèque</span>
+                                                    <span className="text-base font-bold text-slate-800 dark:text-slate-200">{metrics.extrinsic} pts</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 block">Intrinsèque</span>
+                                                    <span className="text-base font-bold text-slate-800 dark:text-slate-200">{metrics.intrinsic} pts</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block">Essentielle</span>
+                                                    <span className="text-base font-bold text-slate-800 dark:text-slate-200">{metrics.germane} pts</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 block">Buffer Libéré</span>
+                                                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">{metrics.remainingCapacity}%</span>
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                onClick={() => setShowMarkdownModal(true)}
+                                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs px-3.5 py-2.5 rounded-xl shadow transition-all flex items-center justify-center gap-1.5 whitespace-nowrap self-stretch sm:self-auto"
+                                            >
+                                                📄 Export Markdown
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* BARRE DE JAUGE MULTI-COULEURS */}
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                            <span>Ressources Mentales Consommées</span>
+                                            <span>Capacité Maximale d'Équipe (100 pts)</span>
+                                        </div>
+                                        <div className="w-full h-4 bg-slate-100 dark:bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-800 flex">
+                                            <div 
+                                                style={{ width: `${Math.min(metrics.extrinsic, 100)}%` }} 
+                                                className="h-full bg-rose-500 rounded-l-full gauge-transition"
+                                                title={`Charge Extrinsèque (Bruit/Ops) : ${metrics.extrinsic}%`}
+                                            ></div>
+                                            <div 
+                                                style={{ width: `${Math.min(metrics.intrinsic, 100)}%` }} 
+                                                className="h-full bg-amber-500 gauge-transition"
+                                                title={`Charge Intrinsèque (Stack/Niveau) : ${metrics.intrinsic}%`}
+                                            ></div>
+                                            <div 
+                                                style={{ width: `${Math.min(metrics.germane, 100)}%` }} 
+                                                className="h-full bg-indigo-500 gauge-transition"
+                                                title={`Charge Essentielle (Domaines Métier) : ${metrics.germane}%`}
+                                            ></div>
+                                        </div>
+                                        <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 flex-wrap gap-2">
+                                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Extrinsèque (Bruit Ops)</span>
+                                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Intrinsèque (Complexité Stack)</span>
+                                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Essentielle (Valeur Métier)</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* FORMULAIRES DE CONFIGURATION */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    
+                                    {}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-5 transition-colors duration-300">
+                                        <div className="border-b border-slate-200 dark:border-slate-800 pb-3 flex items-center justify-between">
+                                            <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                                <span>👥 1. Modèle d'Équipe</span>
+                                            </h3>
+                                            <span className="text-[10px] uppercase font-bold text-indigo-600 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                Dunbar
+                                            </span>
+                                        </div>
+
+                                        {/* Taille de l'équipe Slider */}
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between items-center text-xs">
+                                                <label className="font-bold text-slate-700 dark:text-slate-300">Taille de l'équipe (Personnes)</label>
+                                                <span className="text-indigo-600 dark:text-indigo-400 font-extrabold text-base bg-slate-100 dark:bg-slate-950 px-2.5 py-0.5 rounded border border-slate-200 dark:border-slate-800">
+                                                    {teamSize}
+                                                </span>
+                                            </div>
+                                            <input 
+                                                type="range" 
+                                                min="2" 
+                                                max="20" 
+                                                value={teamSize}
+                                                onChange={(e) => setTeamSize(parseInt(e.target.value))}
+                                                className="w-full h-2 bg-slate-200 dark:bg-slate-950 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                            />
+                                            <div className="flex justify-between text-[10px] text-slate-400">
+                                                <span>3 (Petit)</span>
+                                                <span className="font-bold text-indigo-500">5-8 (Idéal)</span>
+                                                <span>15 (Dunbar max)</span>
+                                                <span>20 (Silo)</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Séniorité de l'équipe */}
+                                        <div className="space-y-1.5">
+                                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Expérience & Séniorité</label>
+                                            <select 
+                                                value={teamSeniority}
+                                                onChange={(e) => setTeamSeniority(e.target.value)}
+                                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            >
+                                                <option value="senior">Équipe Senior / Autonome (Charge intrinsèque min)</option>
+                                                <option value="mixed">Équipe Mixte (Seniors & Intermédiaires)</option>
+                                                <option value="junior">Équipe principalement Junior (Charge intrinsèque élevée)</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Turnover Rate */}
+                                        <div className="space-y-1.5">
+                                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Taux de Turnover / Onboarding</label>
+                                            <select 
+                                                value={turnoverRate}
+                                                onChange={(e) => setTurnoverRate(e.target.value)}
+                                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            >
+                                                <option value="low">Faible (Équipe stable depuis &gt; 1 an)</option>
+                                                <option value="medium">Modéré (Changements réguliers tous les 6 mois)</option>
+                                                <option value="high">Élevé (Arrivées/Départs fréquents, fort coût de formation)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-5 transition-colors duration-300">
+                                        <div className="border-b border-slate-200 dark:border-slate-800 pb-3 flex items-center justify-between">
+                                            <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                                <span>⚙️ 2. Facteurs Extrinsèques</span>
+                                            </h3>
+                                            <span className="text-[10px] uppercase font-bold text-rose-600 bg-rose-50 dark:text-rose-400 dark:bg-rose-950/60 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                                                Outillage & Ops
+                                            </span>
+                                        </div>
+
+                                        {/* Platform Team Switch */}
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Présence d'une Platform Team (XaaS)</h4>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">PaaS, Observabilité, K8s en libre service</p>
+                                            </div>
+                                            <button 
+                                                onClick={() => setHasPlatform(!hasPlatform)}
+                                                className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors ${hasPlatform ? 'bg-indigo-600 justify-end' : 'bg-slate-300 dark:bg-slate-800 justify-start'}`}
+                                            >
+                                                <span className="w-4 h-4 bg-white rounded-full shadow-md"></span>
+                                            </button>
+                                        </div>
+
+                                        {/* Autonomie CI/CD */}
+                                        <div className="space-y-1.5">
+                                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Autonomie sur les Déploiements (CI/CD)</label>
+                                            <select 
+                                                value={cicdAutonomy}
+                                                onChange={(e) => setCicdAutonomy(e.target.value)}
+                                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            >
+                                                <option value="high">Élevée (Déploiement continu autonome en prod)</option>
+                                                <option value="medium">Moyenne (Validation semi-manuelle / Fenêtres hebdo)</option>
+                                                <option value="low">Faible (Ticket Ops manuel / Recette lourde extérieure)</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Dépendances Inter-Équipes */}
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between items-center text-xs">
+                                                <label className="font-bold text-slate-700 dark:text-slate-300">Dépendances Synchrones Inter-Équipes</label>
+                                                <span className="text-rose-600 dark:text-rose-400 font-extrabold text-xs bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800">
+                                                    {dependenciesCount} équipes
+                                                </span>
+                                            </div>
+                                            <input 
+                                                type="range" 
+                                                min="0" 
+                                                max="6" 
+                                                value={dependenciesCount}
+                                                onChange={(e) => setDependenciesCount(parseInt(e.target.value))}
+                                                className="w-full h-2 bg-slate-200 dark:bg-slate-950 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                                            />
+                                        </div>
+
+                                        {/* Debt level */}
+                                        <div className="space-y-1.5">
+                                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Dette Technique & Fragmentations</label>
+                                            <select 
+                                                value={techDebtLevel}
+                                                onChange={(e) => setTechDebtLevel(e.target.value)}
+                                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            >
+                                                <option value="low">Faible (Refactoring fréquent, socle récent)</option>
+                                                <option value="moderate">Modérée (Compromis ponctuels de livraison)</option>
+                                                <option value="high">Lourde (Silos legacy, scripts manuels, instabilité)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-5 flex flex-col justify-between transition-colors duration-300">
+                                        <div className="space-y-4">
+                                            <div className="border-b border-slate-200 dark:border-slate-800 pb-3 flex items-center justify-between">
+                                                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                                    <span>🧩 3. Domaines Métiers</span>
+                                                </h3>
+                                                <span className="text-[10px] uppercase font-bold text-indigo-600 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                    {domains.length} assigné(s)
+                                                </span>
+                                            </div>
+
+                                            {/* FORMULAIRE AJOUT DOMAINE */}
+                                            <div className="bg-slate-50 dark:bg-slate-950/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                                                    + Assigner un nouveau domaine
+                                                </span>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Nom du domaine (ex: Gestion des contrats)..."
+                                                    value={newDomainName}
+                                                    onChange={(e) => setNewDomainName(e.target.value)}
+                                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                                />
+                                                <div className="flex gap-2">
+                                                    <select 
+                                                        value={newDomainComplexity}
+                                                        onChange={(e) => setNewDomainComplexity(e.target.value)}
+                                                        className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 flex-1 focus:outline-none"
+                                                    >
+                                                        <option value="Simple">Simple (6 pts)</option>
+                                                        <option value="Compliqué">Compliqué (18 pts)</option>
+                                                        <option value="Complex">Complexe (32 pts)</option>
+                                                    </select>
+                                                    <button 
+                                                        onClick={addDomain}
+                                                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition-colors"
+                                                    >
+                                                        Ajouter
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* LISTE DES DOMAINES */}
+                                            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                                                {domains.length === 0 ? (
+                                                    <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-4">Aucun domaine métrologique configuré.</p>
+                                                ) : (
+                                                    domains.map(domain => (
+                                                        <div key={domain.id} className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                                                                        domain.complexity === 'Simple' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800' :
+                                                                        domain.complexity === 'Compliqué' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400 border border-amber-300 dark:border-amber-800' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
+                                                                    }`}>
+                                                                        {domain.complexity}
+                                                                    </span>
+                                                                    <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">{domain.name}</span>
+                                                                </div>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => removeDomain(domain.id)}
+                                                                className="text-slate-400 hover:text-rose-500 text-xs px-2 py-1"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    
+                                    {/* INCIDENCES ET VIOLATIONS */}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-4 transition-colors duration-300">
+                                        <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                                            <span>🔍 Audit des Heuristiques Team Topologies</span>
+                                        </h3>
+
+                                        <div className="space-y-3">
+                                            {metrics.violations.length === 0 && metrics.warnings.length === 0 ? (
+                                                <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-4 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-3">
+                                                    <span className="text-xl">🎉</span>
+                                                    <div>
+                                                        <strong className="block font-bold">Excellente Structure !</strong>
+                                                        Le portefeuille de domaines et l'environnement respectent l'ensemble des règles empiriques.
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {metrics.violations.map((v, i) => (
+                                                        <div key={i} className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 p-3.5 rounded-xl text-rose-900 dark:text-rose-200 text-xs space-y-1">
+                                                            <span className="font-bold block text-rose-700 dark:text-rose-300">Franchissement de Seuil Critique</span>
+                                                            <p className="text-slate-700 dark:text-slate-300 leading-relaxed">{v}</p>
+                                                        </div>
+                                                    ))}
+                                                    {metrics.warnings.map((w, i) => (
+                                                        <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-3.5 rounded-xl text-amber-900 dark:text-amber-200 text-xs space-y-1">
+                                                            <span className="font-bold block text-amber-700 dark:text-amber-300">Point d'Attention Architecturale</span>
+                                                            <p className="text-slate-700 dark:text-slate-300 leading-relaxed">{w}</p>
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* RECOMMANDATIONS ET REFACTORING ORGANISATIONNEL */}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 card-shadow space-y-4 transition-colors duration-300">
+                                        <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                                            <span>💡 Recommandations de Cible d'Architecture</span>
+                                        </h3>
+
+                                        <div className="space-y-3">
+                                            {metrics.recommendations.length === 0 ? (
+                                                <p className="text-xs text-slate-400 italic">Aucune action corrective nécessaire pour le moment.</p>
+                                            ) : (
+                                                metrics.recommendations.map((rec, i) => (
+                                                    <div key={i} className="bg-slate-50 dark:bg-slate-950 p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-900/40 text-xs text-slate-800 dark:text-slate-200 flex items-start gap-3">
+                                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">•</span>
+                                                        <p className="leading-relaxed">{rec}</p>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {}
+                        {activeTab === 'rules' && (
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 card-shadow space-y-8 text-slate-700 dark:text-slate-300 leading-relaxed transition-colors duration-300">
+                                <div className="border-b border-slate-200 dark:border-slate-800 pb-6">
+                                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Guide des Règles Métiers & Validité Scientifique</h2>
+                                    <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 font-medium">Comment le modèle de Sweller et Team Topologies s'articulent pour quantifier la charge mentale d'ingénierie.</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                                        <h3 className="text-lg font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-2">
+                                            🧪 La Théorie Scientifique (Sweller, 1988)
+                                        </h3>
+                                        <p className="text-xs">
+                                            La <strong>Théorie de la Charge Cognitive (TCC)</strong> a été développée par John Sweller en psychologie cognitive. Elle étudie les limitations de la mémoire de travail humaine (capacité de 4 ± 1 éléments simultanés).
+                                        </p>
+                                        <ul className="text-xs list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400">
+                                            <li><strong>Charge Extrinsèque :</strong> Effort parasite dû au format ou à l'environnement.</li>
+                                            <li><strong>Charge Intrinsèque :</strong> Effort nécessaire pour apprendre le sujet.</li>
+                                            <li><strong>Charge Essentielle (Germane) :</strong> Construction de schémas mentaux métier.</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                                        <h3 className="text-lg font-bold text-purple-700 dark:text-purple-400 flex items-center gap-2">
+                                            🛠️ Le Modèle Ordinal (Team Topologies)
+                                        </h3>
+                                        <p className="text-xs">
+                                            Matthew Skelton et Manuel Pais ont adapté la TCC à l'ingénierie logicielle d'entreprise. Ce calculateur utilise une <strong>échelle ordinale empirique sur 100 points</strong> pour guider les décisions d'architecture.
+                                        </p>
+                                        <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl text-amber-800 dark:text-amber-200 text-xs">
+                                            <strong>Est-ce 100% Scientifique ?</strong><br/>
+                                            La théorie de base est scientifique (validée par EEG/IRM). L'attribution exacte des points (ex: 18 pts) est une <em>heuristique empirique</em> (comme les Story Points en Agile) conçue pour la prévention des risques.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2">Résumé des Pondérations Utilisées</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                                        <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-rose-200 dark:border-rose-900/40">
+                                            <span className="font-bold text-rose-600 dark:text-rose-400 block mb-1">Charge Extrinsèque (Ops & Bruit)</span>
+                                            <p className="text-slate-600 dark:text-slate-400">Sans Platform Team (+12 pts), CI/CD manuelle (+10 pts), Dépendances synchrones (3 pts/équipe), Dette technique (+8 pts).</p>
+                                        </div>
+                                        <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-amber-200 dark:border-amber-900/40">
+                                            <span className="font-bold text-amber-600 dark:text-amber-400 block mb-1">Charge Intrinsèque (Maturité & Dunbar)</span>
+                                            <p className="text-slate-600 dark:text-slate-400">Taille &gt; 15 pers (+15 pts), Équipe junior (+10 pts), Turnover élevé (+8 pts).</p>
+                                        </div>
+                                        <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/40">
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 block mb-1">Charge Essentielle (Domaines Métiers)</span>
+                                            <p className="text-slate-600 dark:text-slate-400">Domaine Simple (6 pts), Domaine Compliqué (18 pts), Domaine Complexe (32 pts).</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                    </main>
+
+                    {}
+                    {showMarkdownModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4 flex flex-col max-h-[90vh]">
+                                <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                                    <h3 className="font-bold text-base text-indigo-600 dark:text-indigo-400">Export Audit Markdown (Confluence / ADR)</h3>
+                                    <button 
+                                        onClick={() => setShowMarkdownModal(false)}
+                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-sm px-2 py-1"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                
+                                <pre className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-800 dark:text-slate-300 overflow-y-auto flex-1 whitespace-pre-wrap leading-relaxed">
+                                    {generatedMarkdown}
+                                </pre>
+
+                                <div className="flex justify-end gap-3 pt-2">
+                                    <button 
+                                        onClick={() => setShowMarkdownModal(false)}
+                                        className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl"
+                                    >
+                                        Fermer
+                                    </button>
+                                    <button 
+                                        onClick={copyMarkdownToClipboard}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg"
+                                    >
+                                        📋 Copier le Markdown
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* FOOTER GENERAL */}
+                    <footer className="border-t border-slate-200 dark:border-slate-900 bg-white dark:bg-slate-950 py-6 text-center text-xs text-slate-500 dark:text-slate-400 transition-colors duration-300">
+                        <p>Basé sur la Théorie de la Charge Cognitive de John Sweller (1988) & Team Topologies (Matthew Skelton & Manuel Pais)</p>
+                        <p className="mt-1 text-slate-400 dark:text-slate-600">Outil de cadrage pour Architectes SI & Solutions</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
